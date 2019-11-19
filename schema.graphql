@@ -1,0 +1,10 @@
+type Comment {
+    discussionId: String!,
+    content: String!,
+    parent: Comment
+}
+
+type Query {
+    allComments: [Comment!] @index(name: "allComments"),
+    commentsByDiscussionId(discussionId: String!): [Comment!] @index(name: "commentsByDiscussionId")
+}

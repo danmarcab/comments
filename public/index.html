@@ -1,9 +1,14 @@
   <!doctype html>
 
-  <body>
+  <body style="width: 80%; margin: auto">
     <div></div>
     <script src="Comments.js"></script>
     <script>
-        startComments(document.querySelector("div"));
+        startComments({
+          node: document.querySelector("div"),
+          endpoint: "https://graphql.fauna.com/graphql",
+          accessKey: "fnADdSrUBiACAq_sWIRgqVK59WR_VVz4KbY-fjpi",
+          discussionId: "/posts/test"
+        });
     </script>
   </body>
