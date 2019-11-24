@@ -31,6 +31,7 @@ import Task
 
 type alias Model =
     { dataConfig : DataConfig
+    , elmUIEmbedded : Bool
     , styleConfig : StyleConfig
     , newComment : NewComment
     , comments : CommentData
@@ -40,6 +41,12 @@ type alias Model =
 type NewComment
     = Writing String
     | Sending String
+
+
+type alias Flags =
+    { dataConfig : DataConfig
+    , elmUIEmbedded : Bool
+    }
 
 
 type alias DataConfig =
@@ -67,6 +74,7 @@ type alias StyleConfig =
     , buttonPadding : Int
     , buttonBorderColor : Color
     , spacing : Int
+    , typeface : String
     }
 
 
@@ -83,6 +91,7 @@ defaultStyleConfig =
     , buttonBackgroundColor = Element.rgb255 210 210 210
     , buttonTextColor = Element.rgb 0.2 0.2 0.2
     , buttonBorderColor = Element.rgb 0.2 0.2 0.2
+    , typeface = "Roboto"
     , buttonPadding = 5
     , spacing = 10
     }
@@ -99,19 +108,20 @@ type CommentData
 
 
 init :
-    DataConfig
+    Flags
     -> ( Model, Cmd Msg )
 init flags =
     let
         model =
-            { dataConfig = flags
+            { dataConfig = flags.dataConfig
+            , elmUIEmbedded = flags.elmUIEmbedded
             , styleConfig = defaultStyleConfig
             , newComment = Writing ""
             , comments = Loading
             }
     in
     ( model
-    , commentsRequest flags
+    , commentsRequest model.dataConfig
     )
 
 
@@ -191,18 +201,28 @@ main =
 -- UPDATE --
 
 
+type alias CommentResponse =
+    Result (Graphql.Http.Error { id : Id, content : String }) { id : Id, content : String }
+
+
+type alias CommentsResponse =
+    Result (Graphql.Http.Error Comments.RawComments) Comments.RawComments
+
+
 type Msg
     = NoOp
-    | GotComments (Result (Graphql.Http.Error Comments.RawComments) Comments.RawComments)
+    | GotComments CommentsResponse
     | RetryFetchCommentsClicked
     | UpdateNewCommentContent String
     | SubmitNewComment
-    | GotNewComment (Result (Graphql.Http.Error { id : Id, content : String }) { id : Id, content : String })
+    | GotNewComment CommentResponse
     | ToggleCollapse Id
     | StartReply Id
     | UpdateReply Id String
     | SubmitReply Id
-    | GotNewReply Id (Result (Graphql.Http.Error { id : Id, content : String }) { id : Id, content : String })
+    | GotNewReply Id CommentResponse
+    | CancelReply Id
+    | AddCommentClicked
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -402,6 +422,20 @@ update msg model =
                     , scrollTo (idToString id)
                     )
 
+                CancelReply id ->
+                    ( let
+                        newCommentData =
+                            { commentData
+                                | newReplies = AssocList.remove id commentData.newReplies
+                            }
+                      in
+                      { model | comments = Loaded newCommentData }
+                    , Cmd.none
+                    )
+
+                AddCommentClicked ->
+                    ( model, focusTo "newComment" )
+
                 NoOp ->
                     ( model, Cmd.none )
 
@@ -456,8 +490,16 @@ subscriptions model =
 
 view : Model -> Html Msg
 view model =
-    Element.layoutWith { options = [ Element.noStaticStyleSheet ] }
+    Element.layoutWith
+        { options =
+            if model.elmUIEmbedded then
+                [ Element.noStaticStyleSheet ]
+
+            else
+                []
+        }
         [ Element.width Element.fill
+        , Font.family [ Font.typeface model.styleConfig.typeface ]
         , Background.color model.styleConfig.backgroundColor
         ]
     <|
@@ -473,18 +515,14 @@ view model =
                     [ Element.width Element.fill
                     , Element.spacing model.styleConfig.spacing
                     ]
-                    [ Element.paragraph
-                        [ Font.size model.styleConfig.titleFontSize
-                        , Font.color model.styleConfig.titleFontColor
-                        ]
-                        [ Element.text "Add your comment"
-                        ]
-                    , addCommentView model.styleConfig Nothing UpdateNewCommentContent SubmitNewComment model.newComment
-                    , Element.paragraph
-                        [ Font.size model.styleConfig.titleFontSize
-                        , Font.color model.styleConfig.titleFontColor
-                        ]
-                        [ Element.text <| String.fromInt (Comments.countAll comments) ++ " comments"
+                    [ Element.row [ Element.width Element.fill ]
+                        [ Element.paragraph
+                            [ Font.size model.styleConfig.titleFontSize
+                            , Font.color model.styleConfig.titleFontColor
+                            ]
+                            [ Element.text <| String.fromInt (Comments.countAll comments) ++ " comments"
+                            ]
+                        , button { style = model.styleConfig, msg = AddCommentClicked, label = "Add your comment" }
                         ]
                     , commentsView model.styleConfig collapsedReplies newReplies comments
                     , Element.paragraph
@@ -493,12 +531,27 @@ view model =
                         ]
                         [ Element.text "Add your comment"
                         ]
-                    , addCommentView model.styleConfig Nothing UpdateNewCommentContent SubmitNewComment model.newComment
+                    , addCommentView
+                        { style = model.styleConfig
+                        , htmlId = "newComment"
+                        , onChange = UpdateNewCommentContent
+                        , onSubmit = SubmitNewComment
+                        , onCancel = Nothing
+                        , newComment = model.newComment
+                        }
                     ]
 
 
-addCommentView : StyleConfig -> Maybe String -> (String -> Msg) -> Msg -> NewComment -> Element Msg
-addCommentView style maybeHtmlId onChange submit newComment =
+addCommentView :
+    { style : StyleConfig
+    , htmlId : String
+    , onChange : String -> Msg
+    , onSubmit : Msg
+    , onCancel : Maybe Msg
+    , newComment : NewComment
+    }
+    -> Element Msg
+addCommentView { style, htmlId, onChange, onSubmit, onCancel, newComment } =
     case newComment of
         Writing content ->
             Element.column
@@ -511,7 +564,7 @@ addCommentView style maybeHtmlId onChange submit newComment =
                 [ Input.multiline
                     [ Element.width Element.fill
                     , Element.height (Element.shrink |> Element.minimum (style.textFontSize * 10))
-                    , Element.htmlAttribute (Html.Attributes.id (maybeHtmlId |> Maybe.withDefault ""))
+                    , Element.htmlAttribute (Html.Attributes.id htmlId)
                     ]
                     { label = Input.labelHidden "Enter your comment"
                     , onChange = onChange
@@ -519,7 +572,21 @@ addCommentView style maybeHtmlId onChange submit newComment =
                     , spellcheck = False
                     , text = content
                     }
-                , submitNewCommentButton style submit
+                , Element.row [ Element.width Element.fill ]
+                    [ onCancel
+                        |> Maybe.map
+                            (\msg ->
+                                Input.button
+                                    [ Element.alignLeft
+                                    , Font.underline
+                                    ]
+                                    { onPress = Just msg
+                                    , label = Element.text "Cancel Reply"
+                                    }
+                            )
+                        |> Maybe.withDefault Element.none
+                    , button { style = style, msg = onSubmit, label = "Submit your comment" }
+                    ]
                 ]
 
         Sending _ ->
@@ -534,8 +601,8 @@ addCommentView style maybeHtmlId onChange submit newComment =
                 Element.text "Your comment is being sent..."
 
 
-submitNewCommentButton : StyleConfig -> Msg -> Element Msg
-submitNewCommentButton style submit =
+button : { style : StyleConfig, msg : msg, label : String } -> Element msg
+button { style, msg, label } =
     Element.el [ Element.alignRight ] <|
         Input.button
             [ Element.padding style.buttonPadding
@@ -545,8 +612,8 @@ submitNewCommentButton style submit =
             , Border.width 1
             , Element.mouseOver [ Element.moveDown 1 ]
             ]
-            { onPress = Just submit
-            , label = Element.text "Add your comment"
+            { onPress = Just msg
+            , label = Element.text label
             }
 
 
@@ -654,7 +721,14 @@ commentView style collapsedReplies newReplies { content, replies, id } =
                                 [ Element.width Element.fill
                                 ]
                             <|
-                                addCommentView style (Just <| "newReply" ++ idToString id) (UpdateReply id) (SubmitReply id) reply
+                                addCommentView
+                                    { style = style
+                                    , htmlId = "newReply" ++ idToString id
+                                    , onChange = UpdateReply id
+                                    , onSubmit = SubmitReply id
+                                    , onCancel = Just (CancelReply id)
+                                    , newComment = reply
+                                    }
 
                         Nothing ->
                             Element.none
