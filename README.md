@@ -141,4 +141,11 @@ These limits are more than enough for my use case, but have a look at the [curre
 
 Depends, I intend to use it for [my blog](https://danmarcab.com) where I expect between 0 and 1 comments per
 month. For my use case I think is good enough. If you have a big volume of comments or page visits, you
-may run into the limits of [FaunaDB](https://fauna.com/)
+may run into performance problems or into the limits of [FaunaDB](https://fauna.com/)
+
+## Roadmap
+
+At the moment there is only one feature I want to add and it's custom styling, to adjust colors and appearance
+a bit more to your branding. This probably won't happen until I have the need, meaning a second site where I want
+to use this.
+
